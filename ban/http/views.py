@@ -10,6 +10,8 @@ from django.views.generic import View
 from ban.core import models, forms
 from ban.versioning.exceptions import ForcedVersionError
 
+from .decorators import protected
+
 
 class WithURL(type):
 
@@ -82,6 +84,7 @@ class BaseCRUD(URLMixin, View):
         self.object = self.get_object()
         return self.to_json(**self.object.as_resource)
 
+    @protected
     def post(self, *args, **kwargs):
         if self.ref:
             self.object = self.get_object()
@@ -90,6 +93,7 @@ class BaseCRUD(URLMixin, View):
             instance = None
         return self.save_object(self.request.POST, instance)
 
+    @protected
     def put(self, *args, **kwargs):
         self.object = self.get_object()
         data = json.loads(self.request.body.decode())

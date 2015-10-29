@@ -8,8 +8,8 @@ from django.contrib.postgres.fields import HStoreField
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext as _
 
-from ban.versioning.models import VersionMixin
 from ban.core import context
+from ban.versioning.models import VersionMixin
 from .fields import HouseNumberField
 
 
