@@ -9,7 +9,7 @@ from .wsgi import app
 from .auth import auth
 
 
-__all__ = ['Municipality', 'Street', 'Locality', 'Housenumber', 'Position']
+__all__ = ['Municipality', 'AddressBlock', 'AddressPoint', 'Position']
 
 
 class BaseCollection:
@@ -76,7 +76,7 @@ class BaseCRUD(BaseCollection, metaclass=WithURL):
     def on_get(self, req, resp, **params):
         """Get {resource} collection."""
         qs = self.get_collection(req, resp, **params)
-        self.collection(req, resp, qs.as_resource())
+        self.collection(req, resp, qs.as_resource_list())
 
     @app.endpoint(path='/{identifier}')
     def on_get_resource(self, req, resp, **params):
@@ -172,8 +172,8 @@ class Position(VersionnedResource):
     model = models.Position
 
 
-class Housenumber(VersionnedResource):
-    model = models.HouseNumber
+class AddressPoint(VersionnedResource):
+    model = models.AddressPoint
 
     def get_bbox(self, req):
         bbox = {}
@@ -191,8 +191,8 @@ class Housenumber(VersionnedResource):
         if bbox:
             qs = (qs.join(models.Position)
                     .where(models.Position.center.in_bbox(**bbox))
-                    .group_by(models.HouseNumber.id)
-                    .order_by(models.HouseNumber.id))
+                    .group_by(models.AddressPoint.id)
+                    .order_by(models.AddressPoint.id))
         return qs
 
     @app.endpoint('/{identifier}/positions')
@@ -203,42 +203,24 @@ class Housenumber(VersionnedResource):
         self.collection(req, resp, qs)
 
 
-class Locality(VersionnedResource):
-    model = models.Locality
+class AddressBlock(VersionnedResource):
+    model = models.AddressBlock
 
-    @app.endpoint('/{identifier}/housenumbers')
-    def on_get_housenumbers(self, req, resp, *args, **kwargs):
-        """Retrieve {resource} housenumbers."""
+    @app.endpoint('/{identifier}/address-points')
+    def on_get_address_points(self, req, resp, *args, **kwargs):
+        """Retrieve {resource} address points."""
         instance = self.get_object(**kwargs)
-        self.collection(req, resp, instance.housenumber_set.as_resource_list())
-
-
-class Street(Locality):
-    model = models.Street
-
-
-class District(VersionnedResource):
-    model = models.District
-
-
-class Postcode(VersionnedResource):
-    model = models.PostCode
+        self.collection(req, resp, instance.addresspoint_set.as_resource_list())
 
 
 class Municipality(VersionnedResource):
     model = models.Municipality
 
-    @app.endpoint('/{identifier}/streets')
-    def on_get_streets(self, req, resp, *args, **kwargs):
+    @app.endpoint('/{identifier}/address-blocks')
+    def on_get_blocks(self, req, resp, *args, **kwargs):
         """Retrieve {resource} streets."""
         instance = self.get_object(**kwargs)
-        self.collection(req, resp, instance.street_set.as_resource_list())
-
-    @app.endpoint('/{identifier}/localities')
-    def on_get_localities(self, req, resp, *args, **kwargs):
-        """Retrieve {resource} localities."""
-        instance = self.get_object(**kwargs)
-        self.collection(req, resp, instance.locality_set.as_resource_list())
+        self.collection(req, resp, instance.addressblock_set.as_resource_list())
 
 
 class User(BaseCRUD):

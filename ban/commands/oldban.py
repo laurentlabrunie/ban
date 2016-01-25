@@ -1,8 +1,7 @@
 import json
 
 from ban.commands import command, report
-from ban.core.models import (HouseNumber, Locality, Municipality, Position,
-                             Street)
+from ban.core.models import AddressPoint, AddressBlock, Municipality, Position
 
 from .helpers import batch, iter_file, nodiff, session
 
@@ -27,10 +26,14 @@ def process_row(metadata):
     fantoir = ''.join(id.split('_')[:2])[:9]
 
     kind = metadata['type']
-    klass = Street if kind == 'street' else Locality
-    instance = klass.select().where(klass.fantoir == fantoir).first()
+    if kind not in ['street', 'locality']:
+        return report('Skip bad kind', kind)
+    attr = AddressBlock.attributes
+    instance = AddressBlock.select().where(
+        attr.contains({'fantoir': fantoir}),
+        AddressBlock.kind == kind).first()
     if instance:
-        return report('Existing {}'.format(klass.__name__),
+        return report('Existing AddressBlock',
                       {name: name, fantoir: fantoir},
                       report.WARNING)
 
@@ -41,11 +44,12 @@ def process_row(metadata):
 
     data = dict(
         name=name,
-        fantoir=fantoir,
         municipality=municipality.id,
+        attributes=dict(fantoir=fantoir),
+        kind=kind,
         version=1,
     )
-    validator = klass.validator(**data)
+    validator = AddressBlock.validator(**data)
 
     if not validator.errors:
         item = validator.save()
@@ -55,16 +59,16 @@ def process_row(metadata):
             for id, metadata in housenumbers.items():
                 add_housenumber(item, id, metadata)
     else:
-        report('Street error', validator.errors, report.ERROR)
+        report('AddressBlock error', validator.errors, report.ERROR)
 
 
 def add_housenumber(parent, id, metadata):
     number, *ordinal = id.split(' ')
     ordinal = ordinal[0] if ordinal else ''
     center = [metadata['lon'], metadata['lat']]
-    data = dict(number=number, ordinal=ordinal, version=1)
-    data[parent.__class__.__name__.lower()] = parent.id
-    validator = HouseNumber.validator(**data)
+    data = dict(number=number, ordinal=ordinal, version=1,
+                primary_block=parent.id)
+    validator = AddressPoint.validator(**data)
 
     if not validator.errors:
         housenumber = validator.save()
@@ -72,6 +76,6 @@ def add_housenumber(parent, id, metadata):
                                        housenumber=housenumber.id)
         if not validator.errors:
             validator.save()
-        report('Housenumber', housenumber, report.NOTICE)
+        report('AddressPoint', housenumber, report.NOTICE)
     else:
-        report('Housenumber error', validator.errors, report.ERROR)
+        report('AddressPoint error', validator.errors, report.ERROR)

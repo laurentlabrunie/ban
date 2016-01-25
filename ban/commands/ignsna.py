@@ -3,7 +3,7 @@ from pathlib import Path
 import peewee
 
 from ban.commands import command, report
-from ban.core.models import Municipality, PostCode
+from ban.core.models import Municipality, AddressBlock
 from .helpers import session, batch, nodiff, file_len
 
 __namespace__ = 'import'
