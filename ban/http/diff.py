@@ -1,7 +1,8 @@
 from ban.core import versioning
-from .wsgi import app
+
 from .auth import auth
 from .resources import BaseCollection
+from .wsgi import app
 
 
 class Diff(BaseCollection):

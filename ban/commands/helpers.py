@@ -11,7 +11,7 @@ import decorator
 import progressbar
 
 from ban.auth.models import Session, User
-from ban.core import context, config
+from ban.core import config, context
 from ban.core.versioning import Diff
 
 

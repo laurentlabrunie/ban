@@ -1,6 +1,5 @@
-from falcon.response import Response as BaseResponse
-
 from ban.core.encoder import dumps
+from falcon.response import Response as BaseResponse
 
 
 class Response(BaseResponse):

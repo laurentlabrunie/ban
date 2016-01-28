@@ -2,7 +2,6 @@ import uuid
 from datetime import datetime, timedelta
 
 from ban import db
-
 from ban.core.resource import ResourceModel
 
 __all__ = ['User', 'Client', 'Grant', 'Token']

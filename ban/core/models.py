@@ -1,9 +1,10 @@
 import peewee
-from postgis import Point
 
 from ban import db
-from .versioning import Versioned, BaseVersioned
-from .resource import ResourceModel, BaseResource
+from postgis import Point
+
+from .resource import BaseResource, ResourceModel
+from .versioning import BaseVersioned, Versioned
 
 __all__ = ['Municipality', 'AddressBlock', 'AddressPoint', 'Position']
 
@@ -43,14 +44,10 @@ class NamedModel(Model):
 
 class Municipality(NamedModel):
     identifiers = ['siren', 'insee']
-    resource_fields = ['name', 'alias', 'insee', 'siren']
+    resource_fields = ['name', 'alias', 'insee', 'siren', 'addressblocks']
 
     insee = db.CharField(max_length=5, unique=True)
     siren = db.CharField(max_length=9, unique=True)
-
-    @property
-    def postcodes_resource(self):
-        return [p.code for p in self.postcodes]
 
 
 class AddressBlock(NamedModel):
@@ -66,7 +63,8 @@ class AddressBlock(NamedModel):
 
     kind = db.CharField(max_length=50, choices=KIND, null=False)
     attributes = db.HStoreField(null=True)
-    municipality = db.ForeignKeyField(Municipality)
+    municipality = db.ForeignKeyField(Municipality,
+                                      related_name='addressblocks')
 
 
 class AddressPoint(Model):
@@ -76,7 +74,8 @@ class AddressPoint(Model):
 
     number = db.CharField(max_length=16)
     ordinal = db.CharField(max_length=16, null=True)
-    primary_block = db.ForeignKeyField(AddressBlock)
+    primary_block = db.ForeignKeyField(AddressBlock,
+                                       related_name='addresspoints')
     secondary_blocks = db.ManyToManyField(AddressBlock)
     cia = db.CharField(max_length=100, null=True)
     laposte = db.CharField(max_length=10, null=True)
@@ -91,14 +90,26 @@ class AddressPoint(Model):
 
     @property
     def parent(self):
-        return self.street or self.locality
+        return self.primary_block
 
-    # def save(self, *args, **kwargs):
-        # if not getattr(self, '_clean_called', False):
-        #     self.clean()
+    def save(self, *args, **kwargs):
+        if not getattr(self, '_clean_called', False):
+            self.clean()
         # self.cia = self.compute_cia()
-        # super().save(*args, **kwargs)
-        # self._clean_called = False
+        super().save(*args, **kwargs)
+        self._clean_called = False
+
+    def clean(self):
+        qs = AddressPoint.select().where(
+            AddressPoint.number == self.number,
+            AddressPoint.ordinal == self.ordinal,
+            AddressPoint.primary_block == self.primary_block)
+        if self.id:
+            qs = qs.where(AddressPoint.id != self.id)
+        if qs.exists():
+            raise ValueError('Row with same number, ordinal and primary_block '
+                             'already exists')
+        self._clean_called = True
 
     def compute_cia(self):
         return '_'.join([
@@ -118,17 +129,13 @@ class AddressPoint(Model):
     def secondary_blocks_resource(self):
         return [d.as_relation for d in self.secondary_blocks]
 
-    @property
-    def postcode_resource(self):
-        return self.postcode.code if self.postcode else None
-
 
 class Position(Model):
-    resource_fields = ['center', 'source', 'housenumber', 'attributes',
+    resource_fields = ['center', 'source', 'addresspoint', 'attributes',
                        'kind', 'comment']
 
     center = db.PointField(verbose_name=_("center"))
-    housenumber = db.ForeignKeyField(AddressPoint)
+    addresspoint = db.ForeignKeyField(AddressPoint)
     source = db.CharField(max_length=64, null=True)
     kind = db.CharField(max_length=64, null=True)
     attributes = db.HStoreField(null=True)

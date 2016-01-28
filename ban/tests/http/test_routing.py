@@ -8,14 +8,14 @@ from ban import http
     ['position-resource', {"identifier": 1}, '/position/1'],
     ['position-resource', {"id": 1, "identifier": "id"}, '/position/id:1'],
     ['position', {}, '/position'],
-    ['housenumber-resource', {"identifier": 1}, '/housenumber/1'],
-    ['housenumber-resource', {"id": 1, "identifier": "id"}, '/housenumber/id:1'],  # noqa
-    ['housenumber-resource', {"id": "93031_1491H_84_BIS", "identifier": "cia"}, '/housenumber/cia:93031_1491H_84_BIS'],  # noqa
-    ['housenumber', {}, '/housenumber'],
-    ['street-resource', {"identifier": 1}, '/street/1'],
-    ['street-resource', {"id": 1, "identifier": "id"}, '/street/id:1'],
-    ['street-resource', {"id": "930310644M", "identifier": "fantoir"}, '/street/fantoir:930310644M'],  # noqa
-    ['street', {}, '/street'],
+    ['addresspoint-resource', {"identifier": 1}, '/addresspoint/1'],
+    ['addresspoint-resource', {"id": 1, "identifier": "id"}, '/addresspoint/id:1'],  # noqa
+    ['addresspoint-resource', {"id": "93031_1491H_84_BIS", "identifier": "cia"}, '/addresspoint/cia:93031_1491H_84_BIS'],  # noqa
+    ['addresspoint', {}, '/addresspoint'],
+    ['addressblock-resource', {"identifier": 1}, '/addressblock/1'],
+    ['addressblock-resource', {"id": 1, "identifier": "id"}, '/addressblock/id:1'],
+    ['addressblock-resource', {"id": "930310644M", "identifier": "fantoir"}, '/addressblock/fantoir:930310644M'],  # noqa
+    ['addressblock', {}, '/addressblock'],
     ['municipality-resource', {"identifier": 1}, '/municipality/1'],
     ['municipality-resource', {"id": 1, "identifier": "id"}, '/municipality/id:1'],  # noqa
     ['municipality-resource', {"id": "93031", "identifier": "insee"}, '/municipality/insee:93031'],  # noqa

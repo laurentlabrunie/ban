@@ -2,8 +2,8 @@ import pytest
 
 from ban.core import models
 
-from .factories import (DistrictFactory, HouseNumberFactory,
-                        MunicipalityFactory, PositionFactory, StreetFactory)
+from .factories import (AddressBlockFactory, AddressPointFactory,
+                        MunicipalityFactory, PositionFactory)
 
 
 def test_can_create_municipality(session):
@@ -81,19 +81,19 @@ def test_can_create_municipality_with_alias(session):
 
 
 def test_can_create_position(session):
-    housenumber = HouseNumberFactory()
-    validator = models.Position.validator(housenumber=housenumber,
+    addresspoint = AddressPointFactory()
+    validator = models.Position.validator(addresspoint=addresspoint,
                                           center=(1, 2))
     assert not validator.errors
     position = validator.save()
     assert position.center == (1, 2)
-    assert position.housenumber == housenumber
+    assert position.addresspoint == addresspoint
 
 
 def test_can_update_position(session):
     position = PositionFactory(center=(1, 2))
     validator = models.Position.validator(instance=position,
-                                          housenumber=position.housenumber,
+                                          addresspoint=position.addresspoint,
                                           center=(3, 4), version=2)
     assert not validator.errors
     position = validator.save()
@@ -103,60 +103,34 @@ def test_can_update_position(session):
 
 
 def test_invalid_point_should_raise_an_error(session):
-    housenumber = HouseNumberFactory()
-    validator = models.Position.validator(housenumber=housenumber,
-                                          center=1)
+    addresspoint = AddressPointFactory()
+    validator = models.Position.validator(addresspoint=addresspoint, center=1)
     assert 'center' in validator.errors
 
 
-def test_can_create_postcode(session):
-    validator = models.PostCode.validator(code="31310")
-    postcode = validator.save()
-    assert postcode.code == "31310"
-
-
-def test_can_create_postcode_with_integer(session):
-    validator = models.PostCode.validator(code=31310)
-    postcode = validator.save()
-    assert postcode.code == "31310"
-
-
-def test_cannot_create_postcode_with_code_shorter_than_5_chars(session):
-    validator = models.PostCode.validator(code="3131")
-    assert 'code' in validator.errors
-
-
-def test_cannot_create_postcode_with_code_bigger_than_5_chars(session):
-    validator = models.PostCode.validator(code="313100")
-    assert 'code' in validator.errors
-
-
-def test_cannot_create_postcode_with_code_non_digit(session):
-    validator = models.PostCode.validator(code="2A000")
-    assert 'code' in validator.errors
-
-
-def test_can_create_street(session):
+def test_can_create_addressblock(session):
     municipality = MunicipalityFactory(insee="12345")
-    validator = models.Street.validator(name='Rue des Girafes',
-                                        municipality=municipality,
-                                        fantoir='123456789')
+    validator = models.AddressBlock.validator(name='Rue des Girafes',
+                                              kind="street",
+                                              municipality=municipality,
+                                              attributes={'fantoir': '123456'})
     assert not validator.errors
     street = validator.save()
-    assert len(models.Street.select()) == 1
-    assert street.fantoir == "123456789"
+    assert len(models.AddressBlock.select()) == 1
+    assert street.attributes['fantoir'] == "123456"
     assert street.version == 1
 
 
 def test_can_create_street_with_municipality_insee(session):
     municipality = MunicipalityFactory(insee="12345")
-    validator = models.Street.validator(name='Rue des Girafes',
-                                        municipality='insee:12345',
-                                        fantoir='123456789')
+    validator = models.AddressBlock.validator(name='Rue des Girafes',
+                                              kind="street",
+                                              municipality='insee:12345',
+                                              attributes={'fantoir': '123456'})
     assert not validator.errors
     street = validator.save()
-    assert len(models.Street.select()) == 1
-    assert street.fantoir == "123456789"
+    assert len(models.AddressBlock.select()) == 1
+    assert street.attributes['fantoir'] == "123456"
     assert street.version == 1
     assert street.municipality == municipality
 
@@ -168,50 +142,49 @@ def test_can_create_street_with_municipality_old_insee(session):
     municipality.increment_version()
     municipality.save()
     # Call it with old insee.
-    validator = models.Street.validator(name='Rue des Girafes',
-                                        municipality='insee:12345',
-                                        fantoir='123456789')
+    validator = models.AddressBlock.validator(name='Rue des Girafes',
+                                              kind="street",
+                                              municipality='insee:12345')
     assert not validator.errors
     street = validator.save()
-    assert len(models.Street.select()) == 1
+    assert len(models.AddressBlock.select()) == 1
     assert street.municipality == municipality
 
 
-def test_can_create_housenumber(session):
-    street = StreetFactory()
-    validator = models.HouseNumber.validator(street=street, number='11')
+def test_can_create_addresspoint(session):
+    street = AddressBlockFactory()
+    validator = models.AddressPoint.validator(primary_block=street, number='11')
     assert not validator.errors
-    housenumber = validator.save()
-    assert housenumber.number == '11'
+    addresspoint = validator.save()
+    assert addresspoint.number == '11'
 
 
-def test_can_create_housenumber_with_district(session):
-    district = DistrictFactory()
-    street = StreetFactory()
-    validator = models.HouseNumber.validator(street=street, number='11',
-                                             districts=[district])
+def test_can_create_addresspoint_with_secondary_blocks(session):
+    district = AddressBlockFactory(kind="district")
+    street = AddressBlockFactory()
+    validator = models.AddressPoint.validator(primary_block=street, number='11',
+                                              secondary_blocks=[district])
     assert not validator.errors
-    housenumber = validator.save()
-    assert district in housenumber.districts
+    addresspoint = validator.save()
+    assert district in addresspoint.secondary_blocks
 
 
-def test_can_create_housenumber_with_district_ids(session):
-    district = DistrictFactory()
-    street = StreetFactory()
-    validator = models.HouseNumber.validator(street=street, number='11',
-                                             districts=[district.id])
+def test_can_create_addresspoint_with_secondary_blocks_ids(session):
+    district = AddressBlockFactory(kind="district")
+    street = AddressBlockFactory()
+    validator = models.AddressPoint.validator(primary_block=street, number='11',
+                                              secondary_blocks=[district.id])
     assert not validator.errors
-    housenumber = validator.save()
-    assert district in housenumber.districts
+    addresspoint = validator.save()
+    assert district in addresspoint.secondary_blocks
 
 
-def test_can_update_housenumber_district(session):
-    district = DistrictFactory()
-    housenumber = HouseNumberFactory()
-    validator = models.HouseNumber.validator(instance=housenumber,
-                                             update=True,
-                                             version=2,
-                                             districts=[district])
+def test_can_update_addresspoint_secondary_blocks(session):
+    district = AddressBlockFactory(kind="district")
+    addresspoint = AddressPointFactory()
+    validator = models.AddressPoint.validator(instance=addresspoint,
+                                              update=True, version=2,
+                                              secondary_blocks=[district])
     assert not validator.errors
-    housenumber = validator.save()
-    assert district in housenumber.districts
+    addresspoint = validator.save()
+    assert addresspoint.secondary_blocks == [district]

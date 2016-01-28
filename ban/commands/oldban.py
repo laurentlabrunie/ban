@@ -1,7 +1,7 @@
 import json
 
 from ban.commands import command, report
-from ban.core.models import AddressPoint, AddressBlock, Municipality, Position
+from ban.core.models import AddressBlock, AddressPoint, Municipality, Position
 
 from .helpers import batch, iter_file, nodiff, session
 

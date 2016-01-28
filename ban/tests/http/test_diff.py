@@ -10,11 +10,11 @@ def test_diff_endpoint(client):
     position.center = (10, 20)
     position.increment_version()
     position.save()
-    housenumber = position.housenumber
+    housenumber = position.addresspoint
     housenumber.ordinal = "ter"
     housenumber.increment_version()
     housenumber.save()
-    street = housenumber.street
+    street = housenumber.primary_block
     old_street_name = street.name
     street.name = "Rue des Musiciens"
     street.increment_version()

@@ -3,7 +3,7 @@ import json
 import falcon
 from ban.core import models
 
-from ..factories import MunicipalityFactory, PostCodeFactory, StreetFactory
+from ..factories import MunicipalityFactory, AddressBlockFactory
 from .utils import authorize
 
 
@@ -14,18 +14,6 @@ def test_get_municipality(get, url):
     assert resp.status == falcon.HTTP_200
     assert resp.json['id']
     assert resp.json['name'] == 'Cabour'
-
-
-def test_get_municipality_with_postcodes(get, url):
-    postcode = PostCodeFactory(code="33000")
-    municipality = MunicipalityFactory(name="Cabour")
-    municipality.postcodes.add(postcode)
-    uri = url('municipality-resource', identifier=municipality.id)
-    resp = get(uri)
-    assert resp.status == falcon.HTTP_200
-    assert resp.json['id']
-    assert resp.json['name'] == 'Cabour'
-    assert resp.json['postcodes'] == ['33000']
 
 
 def test_get_municipality_without_explicit_identifier(get, url):
@@ -39,9 +27,9 @@ def test_get_municipality_without_explicit_identifier(get, url):
 
 def test_get_municipality_streets_collection(get, url):
     municipality = MunicipalityFactory(name="Cabour")
-    street = StreetFactory(municipality=municipality, name="Rue de la Plage")
-    uri = url('municipality-streets', identifier=municipality.id)
-    resp = get(uri, query_string='pouet=ah')
+    street = AddressBlockFactory(municipality=municipality,)
+    uri = url('municipality-addressblocks', identifier=municipality.id)
+    resp = get(uri)
     assert resp.status == falcon.HTTP_200
     assert resp.json['collection'][0] == street.as_list
     assert resp.json['total'] == 1
@@ -49,8 +37,8 @@ def test_get_municipality_streets_collection(get, url):
 
 def test_get_municipality_streets_collection_is_paginated(get, url):
     municipality = MunicipalityFactory(name="Cabour")
-    StreetFactory.create_batch(6, municipality=municipality)
-    uri = url('municipality-streets', identifier=municipality.id,
+    AddressBlockFactory.create_batch(6, municipality=municipality)
+    uri = url('municipality-addressblocks', identifier=municipality.id,
               query_string=dict(limit=4))
     resp = get(uri)
     page1 = resp.json
@@ -147,36 +135,6 @@ def test_cannot_duplicate_municipality(client, url):
 
 
 @authorize
-def test_create_municipality_with_postcodes(client, url):
-    postcode = PostCodeFactory(code="09350")
-    data = {
-        "name": "Fornex",
-        "insee": "12345",
-        "siren": '123456789',
-        "postcodes": postcode.id
-    }
-    resp = client.post(url('municipality'), data)
-    assert resp.status == falcon.HTTP_201
-    municipality = models.Municipality.first()
-    assert postcode in municipality.postcodes
-
-
-@authorize
-def test_patch_municipality_with_postcodes(client, url):
-    postcode = PostCodeFactory(code="09350")
-    municipality = MunicipalityFactory()
-    data = {
-        "version": 2,
-        "postcodes": postcode.id
-    }
-    uri = url('municipality-resource', identifier=municipality.id)
-    resp = client.post(uri, data)
-    assert resp.status == falcon.HTTP_200
-    municipality = models.Municipality.first()
-    assert postcode in municipality.postcodes
-
-
-@authorize
 def test_create_municipality_with_one_alias(client, url):
     data = {
         "name": "Orvane",
@@ -240,7 +198,7 @@ def test_cannot_delete_municipality_if_not_authorized(client, url):
 @authorize
 def test_cannot_delete_municipality_if_linked_to_street(client, url):
     municipality = MunicipalityFactory()
-    StreetFactory(municipality=municipality)
+    AddressBlockFactory(municipality=municipality)
     uri = url('municipality-resource', identifier=municipality.id)
     resp = client.delete(uri)
     assert resp.status == falcon.HTTP_409

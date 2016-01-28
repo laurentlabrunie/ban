@@ -1,8 +1,8 @@
 import falcon
 
+from . import middlewares
 from .request import Request
 from .response import Response
-from . import middlewares
 from .routing import Router
 
 

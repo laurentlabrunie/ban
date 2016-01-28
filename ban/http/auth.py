@@ -1,9 +1,9 @@
 import falcon
-from falcon_oauth.provider.oauth2 import OAuthProvider
 from ban.auth import models
-
 from ban.core import context
 from ban.utils import is_uuid4
+from falcon_oauth.provider.oauth2 import OAuthProvider
+
 from .wsgi import app
 
 auth = OAuthProvider()

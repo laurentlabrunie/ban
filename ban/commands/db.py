@@ -1,7 +1,7 @@
 from ban.auth import models as amodels
 from ban.commands import command, report
 from ban.core import models as cmodels
-from ban.core.versioning import Diff, Version, IdentifierRedirect
+from ban.core.versioning import Diff, IdentifierRedirect, Version
 
 from . import helpers
 

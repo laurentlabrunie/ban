@@ -93,6 +93,15 @@ class SelectQuery(db.SelectQuery):
 
 class BaseResource(peewee.BaseModel):
 
+    def include_field_for_relation(cls, name):
+        if name == "version":
+            return False
+        attr = getattr(cls, name, None)
+        exclude = (db.ManyToManyField, peewee.ReverseRelationDescriptor)
+        if not attr or isinstance(attr, exclude):
+            return False
+        return True
+
     def __new__(mcs, name, bases, attrs, **kwargs):
         # Inherit and extend instead of replacing.
         resource_fields = attrs.pop('resource_fields', None)
@@ -105,8 +114,7 @@ class BaseResource(peewee.BaseModel):
         cls.fields_for_resource = cls.resource_fields
         cls.fields_for_relation = [
             n for n in cls.fields_for_resource
-            if not isinstance(getattr(cls, n, None), db.ManyToManyField)
-            and not n == 'version']
+            if mcs.include_field_for_relation(cls, n)]
         cls.fields_for_list = cls.fields_for_relation + ['resource']
         cls._meta.resource_schema = cls.build_resource_schema()
         return cls

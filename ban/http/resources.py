@@ -1,13 +1,11 @@
 from urllib.parse import urlencode
 
 import falcon
-
-from ban.core import models
 from ban.auth import models as amodels
+from ban.core import models
 
-from .wsgi import app
 from .auth import auth
-
+from .wsgi import app
 
 __all__ = ['Municipality', 'AddressBlock', 'AddressPoint', 'Position']
 
@@ -206,21 +204,21 @@ class AddressPoint(VersionnedResource):
 class AddressBlock(VersionnedResource):
     model = models.AddressBlock
 
-    @app.endpoint('/{identifier}/address-points')
-    def on_get_address_points(self, req, resp, *args, **kwargs):
+    @app.endpoint('/{identifier}/addresspoints')
+    def on_get_addresspoints(self, req, resp, *args, **kwargs):
         """Retrieve {resource} address points."""
         instance = self.get_object(**kwargs)
-        self.collection(req, resp, instance.addresspoint_set.as_resource_list())
+        self.collection(req, resp, instance.addresspoints.as_resource_list())
 
 
 class Municipality(VersionnedResource):
     model = models.Municipality
 
-    @app.endpoint('/{identifier}/address-blocks')
-    def on_get_blocks(self, req, resp, *args, **kwargs):
-        """Retrieve {resource} streets."""
+    @app.endpoint('/{identifier}/addressblocks')
+    def on_get_addressblocks(self, req, resp, *args, **kwargs):
+        """Retrieve {resource} address blocks."""
         instance = self.get_object(**kwargs)
-        self.collection(req, resp, instance.addressblock_set.as_resource_list())
+        self.collection(req, resp, instance.addressblocks.as_resource_list())
 
 
 class User(BaseCRUD):

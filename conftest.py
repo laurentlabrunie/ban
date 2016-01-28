@@ -1,12 +1,14 @@
 from urllib.parse import urlencode
+
 import pytest
 
-from ban.tests.factories import UserFactory, TokenFactory, SessionFactory
-
 from ban import db
-from ban.commands.db import models, create as createdb, truncate as truncatedb
+from ban.commands.db import create as createdb
+from ban.commands.db import truncate as truncatedb
+from ban.commands.db import models
 from ban.core import context
 from ban.http import application, reverse
+from ban.tests.factories import SessionFactory, TokenFactory, UserFactory
 
 
 def pytest_configure(config):

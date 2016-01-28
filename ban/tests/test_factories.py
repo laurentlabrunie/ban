@@ -19,33 +19,18 @@ def test_token_can_be_instanciated():
     assert token.access_token
 
 
-def test_postcode_can_be_instanciated():
-    postcode = factories.PostCodeFactory(code='31310')
-    assert postcode.code == '31310'
-
-
 def test_municipality_can_be_instanciated():
     municipality = factories.MunicipalityFactory()
     assert municipality.name
 
 
-def test_district_can_be_instanciated():
-    district = factories.DistrictFactory()
-    assert district.name
-
-
-def test_locality_can_be_instanciated():
-    locality = factories.LocalityFactory()
-    assert locality.name
-
-
-def test_street_can_be_instanciated():
-    street = factories.StreetFactory()
+def test_addressblock_can_be_instanciated():
+    street = factories.AddressBlockFactory()
     assert street.name
 
 
-def test_housenumber_can_be_instanciated():
-    hn = factories.HouseNumberFactory()
+def test_addresspoint_can_be_instanciated():
+    hn = factories.AddressPointFactory()
     assert hn.number
 
 

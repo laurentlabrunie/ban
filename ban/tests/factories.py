@@ -73,13 +73,6 @@ class BaseFactory(BaseTestModel):
         abstract = True
 
 
-class PostCodeFactory(BaseFactory):
-    code = FuzzyInteger(10000, 97000)
-
-    class Meta:
-        model = models.PostCode
-
-
 class MunicipalityFactory(BaseFactory):
     name = "Montbrun-Bocage"
     insee = FuzzyAttribute(lambda: str(Random().randint(10000, 97000)))
@@ -89,52 +82,35 @@ class MunicipalityFactory(BaseFactory):
         model = models.Municipality
 
 
-class DistrictFactory(BaseFactory):
-    name = "IIIe Arrondissement"
-    municipality = factory.SubFactory(MunicipalityFactory)
-
-    class Meta:
-        model = models.District
-
-
-class LocalityFactory(BaseFactory):
-    name = "L'Empereur"
-    fantoir = "0080N"
-    municipality = factory.SubFactory(MunicipalityFactory)
-
-    class Meta:
-        model = models.Locality
-
-
-class StreetFactory(BaseFactory):
+class AddressBlockFactory(BaseFactory):
+    kind = 'street'
     name = "Rue des Pyrénées"
-    fantoir = "0080N"
     municipality = factory.SubFactory(MunicipalityFactory)
 
     class Meta:
-        model = models.Street
+        model = models.AddressBlock
 
 
-class HouseNumberFactory(BaseFactory):
+class AddressPointFactory(BaseFactory):
     number = "18"
     ordinal = "bis"
-    street = factory.SubFactory(StreetFactory)
+    primary_block = factory.SubFactory(AddressBlockFactory)
 
     @factory.post_generation
-    def districts(self, create, extracted, **kwargs):
+    def secondary_blocks(self, create, extracted, **kwargs):
         if not create:
             return
 
         if extracted:
-            self.districts.add(extracted)
+            self.secondary_blocks.add(extracted)
 
     class Meta:
-        model = models.HouseNumber
+        model = models.AddressPoint
 
 
 class PositionFactory(BaseFactory):
     center = (-1.1111, 48.8888)
-    housenumber = factory.SubFactory(HouseNumberFactory)
+    addresspoint = factory.SubFactory(AddressPointFactory)
 
     class Meta:
         model = models.Position

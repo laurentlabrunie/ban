@@ -1,7 +1,8 @@
 import peewee
 from playhouse.postgres_ext import PostgresqlExtDatabase
-from ban.core import config
+
 import postgis
+from ban.core import config
 
 
 class DBProxy(peewee.Proxy):

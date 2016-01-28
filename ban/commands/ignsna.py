@@ -3,8 +3,9 @@ from pathlib import Path
 import peewee
 
 from ban.commands import command, report
-from ban.core.models import Municipality, AddressBlock
-from .helpers import session, batch, nodiff, file_len
+from ban.core.models import AddressBlock, Municipality
+
+from .helpers import batch, file_len, nodiff, session
 
 __namespace__ = 'import'
 

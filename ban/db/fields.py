@@ -2,9 +2,9 @@ import json
 import re
 
 import peewee
-
-from playhouse import postgres_ext, fields
+from playhouse import fields, postgres_ext
 from playhouse.fields import PasswordField as PWDField
+
 from postgis import Point
 
 __all__ = ['PointField', 'ForeignKeyField', 'CharField', 'IntegerField',

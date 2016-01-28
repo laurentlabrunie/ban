@@ -1,10 +1,7 @@
-import re
-
-from falcon import HTTP_METHODS, HTTP_404
+from ban import __version__
+from falcon import HTTP_404, HTTP_METHODS
 from falcon.responders import create_default_options, create_method_not_allowed
 from falcon.routing import DefaultRouter
-
-from ban import __version__
 
 
 class Router(DefaultRouter):
@@ -29,7 +26,7 @@ class Router(DefaultRouter):
         return self._index[name].format(**params)
 
     def cls_name(self, cls):
-        return re.sub("([a-z])([A-Z])", "\g<1>-\g<2>", cls.__name__).lower()
+        return cls.__name__.lower()
 
     def index(self, name, template):
         if name in self._index:
