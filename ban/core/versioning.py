@@ -4,7 +4,7 @@ import json
 import peewee
 
 from ban import db
-from ban.auth.models import Session
+from ban.auth.models import Client, Session
 from ban.core.encoder import dumps
 
 from . import context
@@ -66,7 +66,7 @@ class Versioned(db.Model, metaclass=BaseVersioned):
             model_name=self.__class__.__name__,
             model_pk=self.pk,
             sequential=self.version,
-            data=self.serialize()
+            raw=self.serialize()
         )
         if Diff.ACTIVE:
             Diff.create(old=old, new=new, created_at=self.modified_at)
@@ -77,7 +77,9 @@ class Versioned(db.Model, metaclass=BaseVersioned):
             Version.model_name == self.__class__.__name__,
             Version.model_pk == self.pk)
 
-    def load_version(self, id):
+    def load_version(self, id=None):
+        if id is None:
+            id = self.version
         return self.versions.where(Version.sequential == id).first()
 
     @property
@@ -143,7 +145,7 @@ class Version(db.Model):
     model_name = db.CharField(max_length=64)
     model_pk = db.IntegerField()
     sequential = db.IntegerField()
-    data = db.BinaryJSONField()
+    raw = db.BinaryJSONField()
 
     class Meta:
         manager = SelectQuery
@@ -153,20 +155,37 @@ class Version(db.Model):
                                                self.model_name, self.model_pk)
 
     @property
+    def data(self):
+        return json.loads(self.raw)
+
+    @property
     def as_resource(self):
-        return json.loads(self.data)
+        return {
+            "data": self.data,
+            "flags": list(self.flags.as_resource())
+        }
 
     @property
     def model(self):
         return BaseVersioned.registry[self.model_name]
 
     def load(self):
-        return self.model(**self.as_resource)
+        return self.model(**self.data)
 
     @property
     def diff(self):
         return Diff.first(Diff.new == self.pk)
 
+    def flag(self):
+        """Flag current version with current client."""
+        session = context.get('session')
+        if not session:
+            raise ValueError('Must be logged in.')
+        if not session.client:
+            raise ValueError('Token must be linked to a client.')
+        if not session.client.flag_id:
+            raise ValueError('Client must have a valid flag_id.')
+        Flag.create(version=self, session=session, client=session.client)
 
 class Diff(db.Model):
 
@@ -189,8 +208,8 @@ class Diff(db.Model):
         if not self.diff:
             meta = set(['pk', 'id', 'created_by', 'modified_by', 'created_at',
                         'modified_at', 'version'])
-            old = self.old.as_resource if self.old else {}
-            new = self.new.as_resource if self.new else {}
+            old = self.old.data if self.old else {}
+            new = self.new.data if self.new else {}
             keys = set(list(old.keys()) + list(new.keys())) - meta
             self.diff = {}
             for key in keys:
@@ -209,8 +228,8 @@ class Diff(db.Model):
         version = self.new or self.old
         return {
             'increment': self.pk,
-            'old': self.old.as_resource if self.old else None,
-            'new': self.new.as_resource if self.new else None,
+            'old': self.old.data if self.old else None,
+            'new': self.new.data if self.new else None,
             'diff': self.diff,
             'resource': version.model_name.lower(),
             'resource_pk': version.model_pk,
@@ -253,3 +272,25 @@ class IdentifierRedirect(db.Model):
         cls.update(new=new).where(cls.new == old,
                                   cls.model_name == model.__name__,
                                   cls.identifier == identifier).execute()
+
+
+class Flag(db.Model):
+    version = db.ForeignKeyField(Version, related_name='flags')
+    client = db.ForeignKeyField(Client)
+    session = db.ForeignKeyField(Session)
+    created_at = db.DateTimeField()
+
+    class Meta:
+        manager = SelectQuery
+
+    def save(self, *args, **kwargs):
+        if not self.created_at:
+            self.created_at = datetime.now()
+        super().save(*args, **kwargs)
+
+    @property
+    def as_resource(self):
+        return {
+            'at': self.created_at,
+            'by': self.client.flag_id
+        }
