@@ -12,6 +12,7 @@ from ban.auth import models as amodels
 from ban.commands.bal import bal
 from ban.core import models, versioning, context
 from ban.core.encoder import dumps
+from ban.utils import parse_mask
 from ban.http.auth import auth
 from ban.http.wsgi import app
 
@@ -141,6 +142,16 @@ class ModelEndpoint(CollectionMixin):
                 qs = qs.where(field << values)
         return qs
 
+    def get_mask(self):
+        fields = request.args.get('fields', '*')
+        return parse_mask(fields)
+
+    def get_collection_mask(self):
+        fields = request.args.get('fields')
+        if not fields:
+            fields = ','.join(self.model.collection_fields)
+        return parse_mask(fields)
+
     @auth.require_oauth()
     @app.jsonify
     @app.endpoint('', methods=['GET'])
@@ -169,8 +180,11 @@ class ModelEndpoint(CollectionMixin):
         if not isinstance(qs, list):
             order_by = (self.order_by if self.order_by is not None
                         else [self.model.pk])
-            qs = qs.order_by(*order_by).as_resource_list()
-        return self.collection(qs)
+            qs = qs.order_by(*order_by).serialize(self.get_collection_mask())
+        try:
+            return self.collection(qs)
+        except ValueError as e:
+            abort(400, error=str(e))
 
     @auth.require_oauth()
     @app.jsonify
@@ -187,7 +201,10 @@ class ModelEndpoint(CollectionMixin):
                     $ref: '#/definitions/{resource}'
         """
         instance = self.get_object(identifier)
-        return instance.as_resource
+        try:
+            return instance.serialize(self.get_mask())
+        except ValueError as e:
+            abort(400, error=str(e))
 
     @auth.require_oauth()
     @app.jsonify
@@ -337,7 +354,7 @@ class VersionedModelEnpoint(ModelEndpoint):
                         $ref: '#/definitions/Version'
         """
         instance = self.get_object(identifier)
-        return self.collection(instance.versions.as_resource())
+        return self.collection(instance.versions.serialize())
 
     @auth.require_oauth()
     @app.jsonify
@@ -363,7 +380,7 @@ class VersionedModelEnpoint(ModelEndpoint):
         version = instance.load_version(ref)
         if not version:
             abort(404)
-        return version.as_resource
+        return version.serialize()
 
     @auth.require_oauth()
     @app.jsonify
@@ -447,7 +464,8 @@ class HouseNumber(VersionedModelEnpoint):
             # `as_resource_list`), and CompoundSelect is hardcoded in peewee
             # SelectQuery, and we'd need to copy-paste code to be able to use
             # a custom CompoundQuery class instead.
-            qs = [h.as_relation for h in qs.order_by(*self.order_by)]
+            mask = self.get_collection_mask()
+            qs = [h.serialize(mask) for h in qs.order_by(*self.order_by)]
         return qs
 
     def filter_ancestors(self, qs):
@@ -518,4 +536,4 @@ class Diff(CollectionMixin):
             pass
         else:
             qs = qs.where(versioning.Diff.pk > increment)
-        return self.collection(qs.as_resource())
+        return self.collection(qs.serialize())
