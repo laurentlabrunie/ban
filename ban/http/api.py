@@ -1,12 +1,8 @@
-from datetime import timezone
 from io import StringIO
 from urllib.parse import urlencode
 
 import peewee
-from dateutil.parser import parse as parse_date
-from werkzeug.exceptions import HTTPException
-from flask import request, url_for, Response
-from werkzeug.routing import BaseConverter, ValidationError
+from flask import request, url_for
 
 from ban.auth import models as amodels
 from ban.commands.bal import bal
@@ -16,48 +12,10 @@ from ban.utils import parse_mask
 from ban.http.auth import auth
 from ban.http.wsgi import app
 
-
-def abort(code, **kwargs):
-    response = Response(status=code, mimetype='application/json',
-                        response=dumps(kwargs))
-    raise HTTPException(description=dumps(kwargs), response=response)
+from .utils import abort, get_bbox
 
 
-def get_bbox(args):
-    bbox = {}
-    params = ['north', 'south', 'east', 'west']
-    for param in params:
-        try:
-            bbox[param] = float(args.get(param))
-        except ValueError:
-            abort(400, error='Invalid value for {}: {}'.format(
-                param, args.get(param)))
-        except TypeError:
-            # None (param not set).
-            continue
-    if not len(bbox) == 4:
-        return None
-    return bbox
-
-
-class DateTimeConverter(BaseConverter):
-
-    def to_python(self, value):
-        try:
-            value = parse_date(value)
-        except ValueError:
-            raise ValidationError
-        # Be smart, imply that naive dt are in the same tz the API
-        # exposes, which is UTC.
-        if not value.tzinfo:
-            value = value.replace(tzinfo=timezone.utc)
-        return value
-
-
-app.url_map.converters['datetime'] = DateTimeConverter
-
-
-class CollectionMixin:
+class CollectionEndpoint:
 
     filters = []
     DEFAULT_LIMIT = 20
@@ -99,7 +57,7 @@ class CollectionMixin:
         return data, 200, headers
 
 
-class ModelEndpoint(CollectionMixin):
+class ModelEndpoint(CollectionEndpoint):
     endpoints = {}
     order_by = None
 
@@ -108,7 +66,8 @@ class ModelEndpoint(CollectionMixin):
             instance = self.model.coerce(identifier)
         except self.model.DoesNotExist:
             # TODO Flask changes the 404 message, which we don't want.
-            abort(404)
+            abort(404, message='Instance for "{}" does not exist.'
+                  .format(identifier))
         return instance
 
     def save_object(self, instance=None, update=False):
@@ -384,8 +343,7 @@ class VersionedModelEnpoint(ModelEndpoint):
 
     @auth.require_oauth()
     @app.jsonify
-    @app.endpoint('/<identifier>/versions/<int:ref>', methods=['POST'])
-    @app.endpoint('/<identifier>/versions/<datetime:ref>', methods=['POST'])
+    @app.endpoint('/<identifier>/versions/<int:ref>/flag', methods=['POST'])
     def post_version(self, identifier, ref):
         """Flag a version.
 
@@ -404,13 +362,13 @@ class VersionedModelEnpoint(ModelEndpoint):
         version = instance.load_version(ref)
         if not version:
             abort(404)
-        flag = request.json.get('flag')
-        if flag is True:
+        status = request.json.get('status')
+        if status is True:
             version.flag()
-        elif flag is False:
+        elif status is False:
             version.unflag()
         else:
-            abort(400, message='Body should contain a "flag" boolean key')
+            abort(400, message='Body should contain a "status" boolean key')
 
 
 @app.resource
@@ -505,23 +463,25 @@ class User(ModelEndpoint):
     model = amodels.User
 
 
-@app.route('/import/bal/')
-class Bal:
+@app.route('/import/bal', methods=['POST'])
+@auth.require_oauth()
+def bal_post():
+    """Import file at BAL format."""
+    data = request.files['data']
+    bal(StringIO(data.read().decode('utf-8-sig')))
+    reporter = context.get('reporter')
+    return dumps({'report': reporter})
+
+
+@app.resource
+class DiffEndpoint(CollectionEndpoint):
+    endpoint = '/diff'
+    model = versioning.Diff
 
     @auth.require_oauth()
-    def post(self):
-        """Import file at BAL format."""
-        data = request.files['data']
-        bal(StringIO(data.read().decode('utf-8-sig')))
-        reporter = context.get('reporter')
-        return {'report': reporter}
-
-
-@app.route('/diff/')
-class Diff(CollectionMixin):
-
-    @auth.require_oauth()
-    def get(self):
+    @app.jsonify
+    @app.endpoint('', methods=['GET'])
+    def get_collection(self):
         """Get database diffs.
 
         Query parameters:
