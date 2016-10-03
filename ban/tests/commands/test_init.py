@@ -20,7 +20,7 @@ def test_process_group(session):
     municipality = factories.MunicipalityFactory(insee="90008")
     data = {"type": "group", "source": "DGFIP/FANTOIR (2015-07)",
             "group": "way", "municipality:insee": "90008",
-            "group:fantoir": "900080203", "name": "GRANDE RUE F. MITTERRAND",
+            "fantoir": "900080203", "name": "GRANDE RUE F. MITTERRAND",
             "attributes": {"somekey": "somevalue"}}
     process_row(data)
     assert models.Group.select().count() == 1
@@ -40,7 +40,7 @@ def test_process_group_do_not_drop_attributes(session):
                                                'me': 'too'})
     data = {"type": "group", "source": "DGFIP/FANTOIR (2015-07)",
             "group": "way", "municipality:insee": "90008",
-            "group:fantoir": "900080203", "name": "GRANDE RUE F. MITTERRAND",
+            "fantoir": "900080203", "name": "GRANDE RUE F. MITTERRAND",
             "attributes": {"me": "no"}}
     process_row(data)
     assert models.Group.select().count() == 1
@@ -118,8 +118,8 @@ def test_process_housenumber_skip_duplicate_cia_on_different_source(session):
     # ordinal has been removed. But the housenumber without ordinal already
     # exists in the DB.
     data = {"type": "housenumber", "source": "BAN",
-            "housenumber:cia": "90001_0016_2_B",
-            "group:fantoir": "900010016", "numero": "2", "ordinal": ""}
+            "cia": "90001_0016_2_B", "group:fantoir": "900010016",
+            "numero": "2", "ordinal": ""}
     process_row(data)
     assert models.HouseNumber.select().count() == 2
     housenumber = models.HouseNumber.first(
@@ -152,7 +152,7 @@ def test_process_housenumber_from_oldban(session):
     data = {"type": "housenumber", "source": "BAN (2016-06-05)",
             "cia": "90001_0005_2_BIS", "group:fantoir": "900010005",
             "numero": "2", "ordinal": "BIS",
-            "ref:ign": "ADRNIVX_0000000259416737", "postcode": "90400"}
+            "ign": "ADRNIVX_0000000259416737", "postcode:code": "90400"}
     group = factories.GroupFactory(municipality__insee="90001",
                                    fantoir="900010005")
     factories.HouseNumberFactory(parent=group, number="2", ordinal="bis")
@@ -171,9 +171,9 @@ def test_process_housenumber_from_oldban(session):
 
 # File: 07x_positions_ban.json
 def test_process_positions_from_oldban(session):
-    data = {"type": "position", "kind": "unknown",
+    data = {"type": "position", "kind": "unknown", "name": "Bâtiment A",
             "source": "BAN (2016-06-05)", "housenumber:cia": "90001_0005_5_",
-            "ref:ign": "ADRNIVX_0000000259416584",
+            "ign": "ADRNIVX_0000000259416584",
             "geometry": {"type": "Point",
                          "coordinates": [6.871125, 47.602046]}}
     group = factories.GroupFactory(municipality__insee="90001",
@@ -187,6 +187,141 @@ def test_process_positions_from_oldban(session):
     assert position.source == "BAN (2016-06-05)"
     assert position.housenumber == housenumber
     assert position.center.coords == (6.871125, 47.602046)
+    assert position.name == "Bâtiment A"
+
+
+def test_process_positions_does_not_reset_name_key_if_not_given(session):
+    data = {"type": "position", "kind": "entrance",
+            "housenumber:cia": "90001_0005_5_",
+            "ign": "ADRNIVX_0000000261741380"}
+    factories.PositionFactory(
+        housenumber__number='5',
+        housenumber__ordinal='',
+        housenumber__parent__municipality__insee='90001',
+        housenumber__parent__fantoir='900010005',
+        ign='ADRNIVX_0000000261741380',
+        name='Bâtiment A')
+    process_row(data)
+    position = models.Position.first()
+    assert position.name == "Bâtiment A"
+    assert position.version == 2
+
+
+def test_process_positions_reset_name_key_if_null(session):
+    data = {"type": "position", "kind": "entrance", "name": None,
+            "ign": "ADRNIVX_0000000261741380",
+            "housenumber:cia": "90001_0005_5_"}
+    factories.PositionFactory(
+        housenumber__number='5',
+        housenumber__ordinal='',
+        housenumber__parent__municipality__insee='90001',
+        housenumber__parent__fantoir='900010005',
+        ign='ADRNIVX_0000000261741380',
+        name='Bâtiment A')
+    process_row(data)
+    position = models.Position.first()
+    assert position.name is None
+    assert position.version == 2
+
+
+def test_can_match_housenumber_parent_from_ign_id(session):
+    data = {"type": "housenumber", "source": "IGN (2016-06)",
+            "ign": "ADRNIVX_0000000261474435", "group:ign": "06002#003",
+            "numero": "70", "ordinal": ""}
+    group = factories.GroupFactory(municipality__insee='06002',
+                                   fantoir='', ign='06002#003')
+    process_row(data)
+    assert models.HouseNumber.select().count() == 1
+    housenumber = models.HouseNumber.first()
+    assert housenumber.parent == group
+    assert housenumber.ign == 'ADRNIVX_0000000261474435'
+
+
+def test_can_match_housenumber_parent_from_laposte_id(session):
+    data = {"type": "housenumber", "source": "Poste/RAN (2016-06)",
+            "numero": None, "group:laposte": "02855657",
+            "laposte": "0600222227"}
+    group = factories.GroupFactory(municipality__insee='06002',
+                                   fantoir='', laposte='02855657')
+    process_row(data)
+    assert models.HouseNumber.select().count() == 1
+    housenumber = models.HouseNumber.first()
+    assert housenumber.parent == group
+    assert housenumber.laposte == '0600222227'
+
+
+def test_can_update_housenumber_laposte_with_ign_id(session):
+    data = {"type": "housenumber", "source": "IGN/Poste (2016-06)",
+            "ign": "ADRNIVX_0000000261488312", "laposte": "060012222M"}
+    housenumber = factories.HouseNumberFactory(ign='ADRNIVX_0000000261488312')
+    process_row(data)
+    assert models.HouseNumber.select().count() == 1
+    housenumber = models.HouseNumber.first()
+    assert housenumber.laposte == '060012222M'
+
+
+def test_can_update_housenumber_with_parent_number_and_ordinal(session):
+    data = {"type": "housenumber", "source": "Poste (2016-06)",
+            "group:laposte": "00067358", "laposte": "060012223P",
+            "numero": "5", "ordinal": "", "postcode:code": "06910",
+            "municipality:insee": "06900"}
+    postcode = factories.PostCodeFactory(code='06910',
+                                         municipality__insee='06900')
+    housenumber = factories.HouseNumberFactory(parent__laposte='00067358',
+                                               number='5', ordinal='')
+    process_row(data)
+    assert models.HouseNumber.select().count() == 1
+    housenumber = models.HouseNumber.first()
+    assert housenumber.laposte == '060012223P'
+    assert housenumber.postcode == postcode
+
+
+def test_can_update_housenumber_postcode_with_laposte_id(session):
+    data = {"type": "housenumber", "source": "Poste (2016-06)",
+            "laposte": "060012223P", "postcode:code": "06910",
+            "municipality:insee": "06900"}
+    postcode = factories.PostCodeFactory(code='06910',
+                                         municipality__insee='06900')
+    housenumber = factories.HouseNumberFactory(laposte='060012223P')
+    process_row(data)
+    assert models.HouseNumber.select().count() == 1
+    housenumber = models.HouseNumber.first()
+    assert housenumber.postcode == postcode
+
+
+def test_can_match_position_parent_from_ign_id(session):
+    data = {"type": "position", "source": "IGN (2016-06)",
+            "ign": "XXX",
+            "geometry": {"type": "Point",
+                         "coordinates": [6.82920162869564, 47.6098351749073]},
+            "housenumber:ign": "ADRNIVX_0000000261474435"}
+    housenumber = factories.HouseNumberFactory(ign='ADRNIVX_0000000261474435')
+    process_row(data)
+    assert models.Position.select().count() == 1
+    position = models.Position.first()
+    assert position.housenumber == housenumber
+    assert position.ign == 'XXX'
+
+
+def test_process_group_without_fantoir_does_not_delete_it(session):
+    data = {'ign': '06004#357', 'source': 'IGN/Poste (2016-06)',
+            'laposte': '02500921', 'type': 'group'}
+    group = factories.GroupFactory(ign="06004#357", fantoir="060042357")
+    process_row(data)
+    group = models.Group.first()
+    assert group.fantoir == '060042357'
+    assert group.ign == '06004#357'
+
+
+def test_can_import_group_with_laposte_but_no_fantoir(session):
+    data = {'laposte': '02500934', 'municipality:insee': '06004',
+            'type': 'group', 'name': 'VOIE DU TANIT', 'group': 'way',
+            'source': 'Poste/RAN (2016-06)'}
+    municipality = factories.MunicipalityFactory(insee="06004")
+    process_row(data)
+    group = models.Group.first()
+    assert group.laposte == '02500934'
+    assert group.municipality == municipality
 
 
 # File: 09x_positions_sga-ign.json
@@ -194,7 +329,7 @@ def test_process_positions_from_sga_ign(session):
     data = {'type': 'position', 'kind': 'segment',
             'positionning': 'interpolation', 'source': 'IGN (2016-04)',
             'housenumber:cia': '90004_0022_1_',
-            'ref:ign': 'ADRNIVX_0000000354868426',
+            'ign': 'ADRNIVX_0000000354868426',
             'geometry': {'type': 'Point',
                          'coordinates': [6.82920162869564, 47.6098351749073]}}
     group = factories.GroupFactory(municipality__insee='90004',
@@ -212,10 +347,32 @@ def test_process_positions_from_sga_ign(session):
     assert position.center.coords == (6.82920162869564, 47.6098351749073)
 
 
+# File: 09x_positions_sga-ign.json
+def test_can_update_position_from_ign_identifier(session):
+    data = {'type': 'position', 'kind': 'segment',
+            'positionning': 'interpolation', 'source': 'IGN (2016-04)',
+            'housenumber:cia': '90004_0022_1_',
+            'ign': 'ADRNIVX_0000000354868426',
+            'geometry': {'type': 'Point',
+                         'coordinates': [6.82920162869564, 47.6098351749073]}}
+    housenumber = factories.HouseNumberFactory(
+        parent__fantoir='900040022',
+        parent__municipality__insee='90004',
+        number='1',
+        ordinal='')
+    position = factories.PositionFactory(ign='ADRNIVX_0000000354868426',
+                                         housenumber=housenumber)
+    process_row(data)
+    assert models.Position.select().count() == 1
+    position = models.Position.first()
+    assert position.source == 'IGN (2016-04)'
+    assert position.housenumber == housenumber
+
+
 # File: 10_groups-poste-matricule.json
 def test_import_poste_group_matricule(session):
     data = {'type': 'group', 'source': 'IGN (2016-04)',
-            'group:fantoir': '330010005', 'poste:matricule': '00580321'}
+            'fantoir': '330010005', 'laposte': '00580321'}
     factories.GroupFactory(name='RUE DES ARNAUDS', municipality__insee='33001',
                            fantoir='330010005', kind=models.Group.WAY)
     process_row(data)
@@ -229,7 +386,7 @@ def test_import_poste_group_matricule(session):
 # File: 11_housenumbers_group_cea_poste.json
 def test_import_housenumbers_group_cea_poste(session):
     data = {'type': 'housenumber', 'source': 'IGN/Poste (2016-04)',
-            'group:fantoir': '330010005', 'poste:cea': '330012223B',
+            'group:fantoir': '330010005', 'laposte': '330012223B',
             'numero': None}
     factories.GroupFactory(name='RUE DES ARNAUDS', municipality__insee='33001',
                            fantoir='330010005', kind=models.Group.WAY)
@@ -244,8 +401,8 @@ def test_import_housenumbers_group_cea_poste(session):
 # File: 12_housenumber_cea.json
 def test_import_housenumber_cea(session):
     data = {'type': 'housenumber', 'cia': '33001_B072_2_',
-            'poste:cea': '33001223T2', 'numero': '2', 'ordinal': '',
-            'source': 'IGN/Poste (2016-04)'}
+            'laposte': '33001223T2', 'numero': '2', 'ordinal': '',
+            'source': 'IGN/Poste (2016-04)', 'group:fantoir': '33001B072'}
     group = factories.GroupFactory(municipality__insee='33001',
                                    fantoir='33001B072', kind=models.Group.AREA)
     factories.HouseNumberFactory(parent=group, number='2', ordinal='')
@@ -258,11 +415,13 @@ def test_import_housenumber_cea(session):
 # File: 15_group_noms_cadastre_dgfip_bano.json
 def test_import_group_from_bano_dgfip(session):
     data = {'type': 'group', 'source': 'DGFiP/BANO (2016-05)',
-            'group:fantoir': '01001A008', 'name': 'Lotissement Bellevue'}
+            'addressing': 'classical', 'fantoir': '01001A008',
+            'name': 'Lotissement Bellevue'}
     factories.GroupFactory(municipality__insee='01001', fantoir='01001A008',
                            kind=models.Group.AREA, name='LOTISSEMENT BELLEVUE')
     process_row(data)
     assert models.Group.select().count() == 1
     group = models.Group.first()
     assert group.name == 'Lotissement Bellevue'
+    assert group.addressing == 'classical'
     assert group.version == 2

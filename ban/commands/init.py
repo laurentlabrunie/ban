@@ -63,27 +63,44 @@ def process_municipality(row):
     reporter.notice('Imported Municipality', row['insee'])
 
 
+def populate(keys, source, dest):
+    for key in keys:
+        if isinstance(key, (list, tuple)):
+            dest_key = key[1]
+            key = key[0]
+        else:
+            dest_key = key
+        if key in source:
+            dest[dest_key] = source[key]
+
+
 def process_group(row):
-    fantoir = row.get('group:fantoir')
-    data = dict(version=1, fantoir=fantoir)
-    name = row.get('name')
-    if name:
-        data['name'] = name
-    kind = row.get('group')
-    if kind:
-        data['kind'] = kind
+    data = dict(version=1)
+    keys = ['name', ('group', 'kind'), 'laposte', 'ign', 'fantoir']
+    populate(keys, row, data)
     insee = row.get('municipality:insee')
     if insee:
         data['municipality'] = 'insee:{}'.format(insee)
-    laposte = row.get('poste:matricule')
-    if laposte:
-        data['laposte'] = laposte
     source = row.get('source')
     attributes = row.get('attributes', {})
     attributes['source'] = source
     data['attributes'] = attributes
+    if 'addressing' in row:
+        if hasattr(Group, row['addressing'].upper()):
+            data['addressing'] = row['addressing']
     update = False
-    instance = Group.first(Group.fantoir == fantoir)
+    ign = data.get('ign')
+    fantoir = data.get('fantoir')
+    laposte = data.get('laposte')
+    if fantoir:
+        instance = Group.first(Group.fantoir == fantoir)
+    elif ign:
+        instance = Group.first(Group.ign == ign)
+    elif laposte:
+        instance = Group.first(Group.laposte == laposte)
+    else:
+        reporter.error('Missing group unique id', row)
+        return
     if instance:
         attributes = getattr(instance, 'attributes') or {}
         if attributes.get('source') == source:
@@ -97,7 +114,7 @@ def process_group(row):
         update = True
     validator = Group.validator(instance=instance, update=update, **data)
     if validator.errors:
-        reporter.error('Invalid group data', (validator.errors, fantoir))
+        reporter.error('Invalid group data', (validator.errors, row))
     else:
         try:
             validator.save()
@@ -129,29 +146,26 @@ def process_postcode(row):
 
 
 def process_housenumber(row):
-    number = row.get('numero')
-    ordinal = row.get('ordinal') or None
+    data = dict(version=1)
+    keys = [('numero', 'number'), 'ordinal', 'ign', 'laposte', 'cia']
+    populate(keys, row, data)
     fantoir = row.get('group:fantoir')
     cia = row.get('cia')
-    if not fantoir and cia:
-        # 12xxx.json is missing group:fantoir.
-        fantoir = '{}{}'.format(cia[:5], cia[6:10])
-    insee = fantoir[:5]
-    computed_cia = compute_cia(insee, fantoir[5:], number, ordinal)
-    if not cia:
-        cia = computed_cia
-    parent = 'fantoir:{}'.format(fantoir)
+    insee = row.get('municipality:insee')
+    computed_cia = None
+    if fantoir:
+        if not insee:
+            insee = fantoir[:5]
+        number = data.get('number')
+        ordinal = data.get('ordinal')
+        computed_cia = compute_cia(insee, fantoir[5:], number, ordinal)
+        if data.get('cia'):
+            data['cia'] = computed_cia
     source = row.get('source')
-    attributes = {'source': source}
-    data = dict(number=number, ordinal=ordinal, version=1, parent=parent,
-                attributes=attributes)
+    data['attributes'] = {'source': source}
     # Only override if key is present (even if value is null).
-    if 'ref:ign' in row:
-        data['ign'] = row['ref:ign']
-    if 'poste:cea' in row:
-        data['laposte'] = row['poste:cea']
-    if 'postcode' in row:
-        code = row.get('postcode')
+    if 'postcode:code' in row:
+        code = row.get('postcode:code')
         postcode = PostCode.select().join(Municipality).where(
             PostCode.code == code,
             Municipality.insee == insee).first()
@@ -159,18 +173,52 @@ def process_housenumber(row):
             reporter.error('HouseNumber postcode not found', (cia, code))
         else:
             data['postcode'] = postcode
-    instance = HouseNumber.first(HouseNumber.cia == cia)
+
+    group_ign = row.get('group:ign')
+    group_laposte = row.get('group:laposte')
+    parent = None
+    if fantoir:
+        parent = 'fantoir:{}'.format(fantoir)
+    elif group_ign:
+        parent = 'ign:{}'.format(group_ign)
+    elif group_laposte:
+        parent = 'laposte:{}'.format(group_laposte)
+    if parent:
+        try:
+            parent = Group.coerce(parent)
+        except Group.DoesNotExist:
+            reporter.error('Parent given but not found', parent)
+            parent = None
+        else:
+            data['parent'] = parent
+
     update = False
+    instance = None
+    ign = data.get('ign')
+    laposte = data.get('laposte')
+    if cia:
+        instance = HouseNumber.first(HouseNumber.cia == cia)
+        if instance and compute_cia:
+            if cia != computed_cia:
+                # Means new values are changing one of the four values of the
+                # cia (insee, fantoir, number, ordinal). Make sure we are not
+                # creating a duplicate.
+                duplicate = HouseNumber.first(HouseNumber.cia == computed_cia)
+                if duplicate:
+                    msg = 'Duplicate CIA'
+                    reporter.error(msg, (cia, computed_cia))
+                    return
+    elif ign:
+        instance = HouseNumber.first(HouseNumber.ign == ign)
+    elif laposte:
+        instance = HouseNumber.first(HouseNumber.laposte == laposte)
+    if parent and not instance:
+        # Data is not coerced yet, we want None for empty strings.
+        ordinal = data.get('ordinal') or None
+        instance = HouseNumber.first(HouseNumber.parent == parent,
+                                     HouseNumber.number == data['number'],
+                                     HouseNumber.ordinal == ordinal)
     if instance:
-        if cia != computed_cia:
-            # Means new values are changing one of the four values of the cia
-            # (insee, fantoir, number, ordinal). Make sure we are not creating
-            # a duplicate.
-            duplicate = HouseNumber.first(HouseNumber.cia == computed_cia)
-            if duplicate:
-                msg = 'Duplicate CIA'
-                reporter.error(msg, (cia, computed_cia))
-                return
         attributes = getattr(instance, 'attributes') or {}
         if attributes.get('source') == source:
             # Reimporting same data?
@@ -179,49 +227,67 @@ def process_housenumber(row):
         data['version'] = instance.version + 1
         update = True
 
+    if not instance and not parent:
+        reporter.error('No matching instance and missing parent reference',
+                       row)
+        return
+
     validator = HouseNumber.validator(instance=instance, update=update, **data)
     if validator.errors:
-        reporter.error('HouseNumber errors', (validator.errors, parent))
+        reporter.error('HouseNumber errors', (validator.errors, data))
         return
     with HouseNumber._meta.database.atomic():
         try:
             validator.save()
-        except peewee.IntegrityError:
-            reporter.warning('HouseNumber DB error', cia)
+        except peewee.IntegrityError as e:
+            reporter.warning('HouseNumber DB error', (data, str(e)))
         else:
             msg = 'HouseNumber Updated' if instance else 'HouseNumber created'
-            reporter.notice(msg, (number, ordinal, parent))
+            reporter.notice(msg, data)
 
 
 def process_position(row):
-    kind = row.get('kind')
-    if not hasattr(Position, kind.upper()):
-        kind = Position.UNKNOWN
     positioning = row.get('positionning')  # two "n" in the data.
     if not positioning or not hasattr(Position, positioning.upper()):
         positioning = Position.OTHER
     source = row.get('source')
-    cia = row.get('housenumber:cia').upper()
-    center = row.get('geometry')
-    housenumber = HouseNumber.first(HouseNumber.cia == cia)
+    cia = row.get('housenumber:cia')
+    housenumber_ign = row.get('housenumber:ign')
+    housenumber = None
+    if cia:
+        cia = cia.upper()
+        housenumber = HouseNumber.first(HouseNumber.cia == cia)
+    elif housenumber_ign:
+        housenumber = HouseNumber.first(HouseNumber.ign == housenumber_ign)
     if not housenumber:
-        reporter.error('Position housenumber does not exist', cia)
+        reporter.error('Unable to find parent housenumber', row)
         return
-    instance = Position.first(Position.housenumber == housenumber,
-                              Position.kind == kind, Position.source == source)
+    instance = None
+    if 'ign' in row:
+        # The only situation where we want to avoid creating new position is
+        # when we have the ign identifier.
+        instance = Position.first(Position.ign == row['ign'])
     version = instance.version + 1 if instance else 1
-    data = dict(kind=kind, source=source, housenumber=housenumber,
-                center=center, positioning=positioning, version=version)
-    if 'ref:ign' in row:
-        data['ign'] = row.get('ref:ign')
-    validator = Position.validator(instance=instance, **data)
+    data = dict(source=source, housenumber=housenumber,
+                positioning=positioning, version=version)
+    kind = row.get('kind', '')
+    if hasattr(Position, kind.upper()):
+        data['kind'] = kind
+    elif not instance:
+        # We are creating a new position (not updating), kind is mandatory.
+        kind = Position.UNKNOWN
+    if kind:
+        data['kind'] = kind
+    populate(['ign', 'name', ('geometry', 'center')], row, data)
+    validator = Position.validator(instance=instance, update=bool(instance),
+                                   **data)
     if validator.errors:
         reporter.error('Position error', validator.errors)
     else:
         try:
             position = validator.save()
-        except peewee.IntegrityError:
-            reporter.error('Integrity error', row)
+        except peewee.IntegrityError as e:
+            reporter.error('Integrity error', (str(e), data))
         else:
             msg = 'Position updated' if instance else 'Position created'
             reporter.notice(msg, position.id)

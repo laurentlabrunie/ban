@@ -1,3 +1,5 @@
+import datetime
+
 import peewee
 import pytest
 
@@ -19,6 +21,12 @@ def test_select_first_model_locks_version():
     assert municipality._locked_version == 1
 
 
+def test_created_at_is_utc_aware():
+    MunicipalityFactory()
+    municipality = models.Municipality.select().first()
+    assert municipality.created_at.tzinfo == datetime.timezone.utc
+
+
 def test_municipality_is_created_with_version_1():
     municipality = MunicipalityFactory()
     assert municipality.version == 1
@@ -38,6 +46,7 @@ def test_municipality_as_resource():
     municipality = MunicipalityFactory(name="Montbrun-Bocage", insee="31365",
                                        siren="210100566")
     postcode = PostCodeFactory(code="31310", municipality=municipality)
+
     assert municipality.as_resource['name'] == "Montbrun-Bocage"
     assert municipality.as_resource['insee'] == "31365"
     assert municipality.as_resource['siren'] == "210100566"
@@ -49,7 +58,10 @@ def test_municipality_as_resource():
         'resource': 'postcode',
         'name': 'Test PostCode Area Name',
         'municipality': municipality.id,
-        'id': postcode.id}]
+        'id': postcode.id,
+        'alias': None,
+        'version': 1,
+    }]
 
 
 def test_municipality_as_relation():
@@ -61,7 +73,6 @@ def test_municipality_as_relation():
     assert municipality.as_relation['siren'] == "210100566"
     assert municipality.as_relation['id'] == municipality.id
     assert 'postcodes' not in municipality.as_relation
-    assert 'version' not in municipality.as_relation
 
 
 def test_municipality_str():
@@ -153,6 +164,7 @@ def test_group_as_relation():
         'attributes': None,
         'laposte': None,
         'addressing': None,
+        'version': 1
     }
 
 
@@ -316,7 +328,8 @@ def test_housenumber_as_relation():
         'number': '90',
         'postcode': None,
         'ordinal': 'bis',
-        'resource': 'housenumber'
+        'resource': 'housenumber',
+        'version': 1,
     }
 
 

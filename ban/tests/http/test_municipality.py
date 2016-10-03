@@ -35,7 +35,10 @@ def test_get_municipality_with_postcodes(get, url):
         'code': '33000',
         'name': 'Test PostCode Area Name',
         'municipality': municipality.id,
-        'resource': 'postcode'}]
+        'resource': 'postcode',
+        'alias': None,
+        'version': 1,
+    }]
 
 
 @authorize
@@ -112,6 +115,11 @@ def test_get_municipality_versions_by_datetime(get, url):
     Version.update(period=period).where(Version.sequential == 2).execute()
     # Should work with a simple datetime.
     resp = get(url('municipality-version', identifier=municipality.id,
+                   ref='2015-06-01T01:02:03+00:00'))
+    assert resp.status == falcon.HTTP_200
+    assert resp.json['data']['name'] == 'Cabour'
+    # Should work with a naive datetime too.
+    resp = get(url('municipality-version', identifier=municipality.id,
                    ref='2015-06-01 01:02:03'))
     assert resp.status == falcon.HTTP_200
     assert resp.json['data']['name'] == 'Cabour'
@@ -137,7 +145,7 @@ def test_get_versions_by_datetime_should_raise_if_format_is_invalid(get, url):
     municipality = MunicipalityFactory(name="Cabour")
     # Artificialy change versions periods.
     resp = get(url('municipality-version', identifier=municipality.id,
-               ref='01:02:03 2015-06-01'))
+               ref='01:02:032015-06-01'))
     assert resp.status == falcon.HTTP_400
     assert 'Must be either a version number or a datetime' in resp.json['description']  # noqa
 
