@@ -48,7 +48,7 @@ def staff():
 
 @pytest.fixture()
 def session():
-    session = SessionFactory()
+    session = SessionFactory(user__is_staff=True)
     context.set('session', session)
     return session
 
@@ -139,7 +139,7 @@ class MonkeyPatchWrapper(object):
 def config(request, monkeypatch):
     from ban.core import config as ban_config
     # Make sure config cache is empty.
-    ban_config.cache.clear()
+    ban_config.clear()
     return MonkeyPatchWrapper(monkeypatch, ban_config)
 
 

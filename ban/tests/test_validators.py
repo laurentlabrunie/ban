@@ -74,6 +74,30 @@ def test_cannot_update_municipality_without_version(session):
     assert 'version' in validator.errors
 
 
+def test_cannot_update_municipality_with_null_version(session):
+    municipality = MunicipalityFactory(insee="12345")
+    validator = models.Municipality.validator(instance=municipality,
+                                              update=True, version=None,
+                                              insee="54321")
+    assert validator.errors['version'] == 'Value should not be null'
+
+
+def test_cannot_update_municipality_with_empty_version(session):
+    municipality = MunicipalityFactory(insee="12345")
+    validator = models.Municipality.validator(instance=municipality,
+                                              update=True, version='',
+                                              insee="54321")
+    assert validator.errors['version'] == 'Value should not be null'
+
+
+def test_cannot_update_municipality_with_version_equal_to_0(session):
+    municipality = MunicipalityFactory(insee="12345")
+    validator = models.Municipality.validator(instance=municipality,
+                                              update=True, version=0,
+                                              insee="54321")
+    assert validator.errors['version'] == 'Value should not be null'
+
+
 def test_cannot_duplicate_municipality_insee(session):
     MunicipalityFactory(insee='12345')
     validator = models.Municipality.validator(name='Carbone',
@@ -174,21 +198,21 @@ def test_cannot_create_postcode_with_code_shorter_than_5_chars(session):
     municipality = MunicipalityFactory(insee='12345')
     validator = models.PostCode.validator(code="3131", name="Montbrun-Bocage",
                                           municipality=municipality)
-    assert 'code' in validator.errors
+    assert validator.errors['code'] == 'Invalid postcode: `3131`'
 
 
 def test_cannot_create_postcode_with_code_bigger_than_5_chars(session):
     municipality = MunicipalityFactory(insee='12345')
     validator = models.PostCode.validator(code="313100", name="Montbrun",
                                           municipality=municipality)
-    assert 'code' in validator.errors
+    assert validator.errors['code'] == 'Invalid postcode: `313100`'
 
 
 def test_cannot_create_postcode_with_code_non_digit(session):
     municipality = MunicipalityFactory(insee='12345')
     validator = models.PostCode.validator(code="2A000", name="Montbrun-Bocage",
                                           municipality=municipality)
-    assert 'code' in validator.errors
+    assert validator.errors['code'] == 'Invalid postcode: `2A000`'
 
 
 def test_can_create_street(session):
@@ -247,7 +271,9 @@ def test_cannot_create_group_with_fantoir_greater_than_9or10_digits(session):
                                        kind=models.Group.WAY,
                                        municipality=municipality,
                                        fantoir='123456789012')
-    assert 'fantoir' in validator.errors
+    assert validator.errors['fantoir'] == ('FANTOIR must be municipality INSEE'
+                                           ' + 4 first chars of FANTOIR, got '
+                                           '`123456789012` instead')
 
 
 def test_can_create_street_with_municipality_insee(session):
@@ -264,7 +290,7 @@ def test_can_create_street_with_municipality_insee(session):
     assert street.municipality == municipality
 
 
-def test_can_create_street_with_municipality_old_insee(session):
+def test_old_insee_return_an_error_with_new_identifier(session):
     municipality = MunicipalityFactory(insee="12345")
     # This should create a redirect.
     municipality.insee = '54321'
@@ -275,10 +301,8 @@ def test_can_create_street_with_municipality_old_insee(session):
                                        kind=models.Group.WAY,
                                        municipality='insee:12345',
                                        fantoir='123456789')
-    assert not validator.errors
-    street = validator.save()
-    assert len(models.Group.select()) == 1
-    assert street.municipality == municipality
+    assert 'municipality' in validator.errors
+    assert municipality.id in validator.errors['municipality']
 
 
 def test_can_create_street_with_empty_laposte_id(session):
@@ -309,7 +333,7 @@ def test_bad_foreign_key_gives_readable_message(session):
                                        municipality='insee:12345',
                                        fantoir='123456789')
     assert validator.errors['municipality'] == ('No matching resource for '
-                                                '"insee:12345"')
+                                                '`insee:12345`')
 
 
 def test_can_create_housenumber(session):
@@ -359,9 +383,8 @@ def test_giving_wrong_version_should_patch_if_possible(session):
     resource = housenumber.as_resource
     resource['number'] = "19"
     resource['version'] = 2
-    del resource['positions']  # This is not a real resource field.
-    del resource['cia']  # Readonly field.
-    validator = models.HouseNumber.validator(instance=housenumber, **resource)
+    validator = models.HouseNumber.validator(instance=housenumber, update=True,
+                                             **resource)
     assert not validator.errors
     validator.save()
     # Update another field and give again version=2 as if we were only aware
@@ -369,7 +392,8 @@ def test_giving_wrong_version_should_patch_if_possible(session):
     resource['number'] = "18"  # Pretend we haven't changed it.
     resource['ordinal'] = 'bis'
     resource['version'] = 2
-    validator = models.HouseNumber.validator(instance=housenumber, **resource)
+    validator = models.HouseNumber.validator(instance=housenumber, update=True,
+                                             **resource)
     assert not validator.errors
     housenumber = validator.save()
     assert housenumber.number == "19"
@@ -397,5 +421,26 @@ def test_giving_wrong_version_should_patch_if_possible_with_update(session):
 
 
 def test_can_create_user():
-    validator = User.validator(username='Banner', email='ban@er', is_staff=False)
+    validator = User.validator(username='Banner', email='ban@er',
+                               is_staff=False)
     assert not validator.errors
+
+
+def test_cannot_add_a_deleted_resource_as_fk():
+    deleted = MunicipalityFactory()
+    deleted.mark_deleted()
+    validator = models.Group.validator(municipality=deleted,
+                                       name='Rue des Pianos',
+                                       kind=models.Group.AREA)
+    assert validator.errors['municipality'] == (
+        'Resource `municipality` with id `{}` is deleted'.format(deleted.id))
+
+
+def test_cannot_add_a_deleted_resource_in_m2m():
+    housenumber = HouseNumberFactory()
+    deleted = GroupFactory()
+    deleted.mark_deleted()
+    validator = models.HouseNumber.validator(instance=housenumber, update=True,
+                                             ancestors=[deleted], version=2)
+    assert validator.errors['ancestors'] == (
+        'Resource `group` with id `{}` is deleted'.format(deleted.id))

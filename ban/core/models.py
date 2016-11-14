@@ -160,6 +160,7 @@ class Position(Model):
     SEGMENT = 'segment'
     UTILITY = 'utility'
     UNKNOWN = 'unknown'
+    AREA = 'area'
     KIND = (
         (POSTAL, _('postal delivery')),
         (ENTRANCE, _('entrance')),
@@ -169,6 +170,7 @@ class Position(Model):
         (PARCEL, _('parcel')),
         (SEGMENT, _('road segment')),
         (UTILITY, _('utility service')),
+        (AREA, _('area')),
         (UNKNOWN, _('unknown')),
     )
 
@@ -187,8 +189,9 @@ class Position(Model):
         (OTHER, _('other')),
     )
 
+    identifiers = ['laposte', 'ign']
     resource_fields = ['center', 'source', 'housenumber', 'kind', 'comment',
-                       'parent', 'positioning', 'name', 'ign']
+                       'parent', 'positioning', 'name', 'ign', 'laposte']
 
     name = db.CharField(max_length=200, null=True)
     center = db.PointField(verbose_name=_("center"), null=True, index=True)
@@ -198,6 +201,7 @@ class Position(Model):
     kind = db.CharField(max_length=64, choices=KIND)
     positioning = db.CharField(max_length=32, choices=POSITIONING)
     ign = db.CharField(max_length=24, null=True, unique=True)
+    laposte = db.CharField(max_length=10, null=True, unique=True)
     comment = db.TextField(null=True)
 
     class Meta:

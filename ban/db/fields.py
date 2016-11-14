@@ -9,6 +9,8 @@ from playhouse.fields import PasswordField as PWDField
 from postgis import Point
 from psycopg2.extras import DateTimeTZRange
 
+from ban.core.exceptions import ValidationError
+
 __all__ = ['PointField', 'ForeignKeyField', 'CharField', 'IntegerField',
            'HStoreField', 'UUIDField', 'ArrayField', 'DateTimeField',
            'BooleanField', 'BinaryJSONField', 'PostCodeField', 'FantoirField',
@@ -110,13 +112,13 @@ class ForeignKeyField(peewee.ForeignKeyField):
     def coerce(self, value):
         if not value:
             return None
-        if isinstance(value, peewee.Model):
-            value = value.pk
-        elif isinstance(value, dict):
+        if isinstance(value, dict):
             # We have a resource dict.
             value = value['id']
-        if isinstance(value, str) and hasattr(self.rel_model, 'coerce'):
-            value = self.rel_model.coerce(value).pk
+        if hasattr(self.rel_model, 'coerce'):
+            value = self.rel_model.coerce(value)
+        if isinstance(value, peewee.Model):
+            value = value.pk
         return super().coerce(value)
 
     def _get_related_name(self):
@@ -154,6 +156,11 @@ class TextField(peewee.TextField):
 class IntegerField(peewee.IntegerField):
     __data_type__ = int
     __schema_type__ = 'integer'
+
+    def coerce(self, value):
+        if not value:
+            return None
+        return super().coerce(value)
 
 
 class HStoreField(postgres_ext.HStoreField):
@@ -210,7 +217,7 @@ class PostCodeField(CharField):
     def coerce(self, value):
         value = str(value)
         if not len(value) == 5 or not value.isdigit():
-            raise ValueError('Invalid postcode "{}"'.format(value))
+            raise ValidationError('Invalid postcode: `{}`'.format(value))
         return value
 
 
@@ -225,8 +232,9 @@ class FantoirField(CharField):
         if len(value) == 10:
             value = value[:9]
         if not len(value) == 9:
-            raise ValueError('FANTOIR must be municipality INSEE '
-                             '+ 4 first chars of FANTOIR "{}"'.format(value))
+            raise ValidationError('FANTOIR must be municipality INSEE + 4 '
+                                  'first chars of FANTOIR, '
+                                  'got `{}` instead'.format(value))
         return value
 
 
@@ -248,11 +256,7 @@ class ManyToManyField(fields.ManyToManyField):
             return []
         if not isinstance(value, (tuple, list, peewee.SelectQuery)):
             value = [value]
-        # https://github.com/coleifer/peewee/pull/795
-        value = [self.rel_model.coerce(item)
-                 if not isinstance(item, self.rel_model)
-                 else item
-                 for item in value]
+        value = [self.rel_model.coerce(item) for item in value]
         return super().coerce(value)
 
     def add_to_class(self, model_class, name):

@@ -34,7 +34,8 @@ def test_get_housenumber(get):
         'laposte': None,
         'ordinal': 'bis',
         'positions': [],
-        'postcode': None
+        'postcode': None,
+        'status': 'active',
     }
 
 
@@ -302,6 +303,15 @@ def test_create_housenumber_with_postcode_id(client):
 
 
 @authorize
+def test_empty_body_should_not_crash(client):
+    housenumber = HouseNumberFactory(number="22", ordinal="B")
+    assert models.HouseNumber.select().count() == 1
+    uri = '/housenumber/{}'.format(housenumber.id)
+    resp = client.put(uri, data=None)
+    assert resp.status_code == 422
+
+
+@authorize
 def test_replace_housenumber(client):
     housenumber = HouseNumberFactory(number="22", ordinal="B")
     assert models.HouseNumber.select().count() == 1
@@ -334,6 +344,7 @@ def test_replace_housenumber_with_missing_field_fails(client):
     }
     resp = client.put(uri, data=data)
     assert resp.status_code == 422
+    assert resp.json['error'] == 'Invalid data'
     assert 'errors' in resp.json
     assert models.HouseNumber.select().count() == 1
 
@@ -377,6 +388,8 @@ def test_delete_housenumber(client):
     assert resp.status_code == 200
     assert resp.json['resource_id'] == housenumber.id
     assert not models.HouseNumber.select().count()
+    assert models.HouseNumber.raw_select().where(
+                    models.HouseNumber.pk == housenumber.pk).get().deleted_at
 
 
 def test_cannot_delete_housenumber_if_not_authorized(client):

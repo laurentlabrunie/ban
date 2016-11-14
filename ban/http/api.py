@@ -6,11 +6,13 @@ from flask import request, url_for
 
 from ban.auth import models as amodels
 from ban.commands.bal import bal
-from ban.core import models, versioning, context
+from ban.core import context, models, versioning
 from ban.core.encoder import dumps
-from ban.utils import parse_mask
+from ban.core.exceptions import (IsDeletedError, MultipleRedirectsError,
+                                 RedirectError, ResourceLinkedError)
 from ban.http.auth import auth
 from ban.http.wsgi import app
+from ban.utils import parse_mask
 
 from .utils import abort, get_bbox, link
 
@@ -62,19 +64,34 @@ class ModelEndpoint(CollectionEndpoint):
     order_by = None
 
     def get_object(self, identifier):
+        endpoint = '{}-get-resource'.format(self.__class__.__name__.lower())
         try:
             instance = self.model.coerce(identifier)
         except self.model.DoesNotExist:
-            # TODO Flask changes the 404 message, which we don't want.
-            abort(404, message='Instance for "{}" does not exist.'
+            abort(404, error='Resource with identifier `{}` does not exist.'
                   .format(identifier))
+        except RedirectError as e:
+            headers = {'Location': url_for(endpoint, identifier=e.redirect)}
+            abort(302, headers=headers)
+        except MultipleRedirectsError as e:
+            headers = {}
+            choices = []
+            for redirect in e.redirects:
+                uri = url_for(endpoint, identifier=redirect)
+                link(headers, uri, 'alternate')
+                choices.append(uri)
+            abort(300, headers=headers, choices=choices)
+        except IsDeletedError as err:
+            if request.method not in ['GET', 'PUT']:
+                abort(410, error='Resource `{}` is deleted'.format(identifier))
+            instance = err.instance
         return instance
 
     def save_object(self, instance=None, update=False):
         validator = self.model.validator(update=update, instance=instance,
-                                         **request.json)
+                                         **request.json or {})
         if validator.errors:
-            abort(422, errors=validator.errors)
+            abort(422, error='Invalid data', errors=validator.errors)
         try:
             instance = validator.save()
         except models.Model.ForcedVersionError as e:
@@ -94,7 +111,7 @@ class ModelEndpoint(CollectionEndpoint):
                 try:
                     values = list(map(field.coerce, values))
                 except ValueError:
-                    abort('400', 'Invalid value for filter {}'.format(key))
+                    abort(400, error='Invalid value for filter {}'.format(key))
                 except peewee.DoesNotExist:
                     # Return an empty collection as the fk is not found.
                     return None
@@ -158,10 +175,15 @@ class ModelEndpoint(CollectionEndpoint):
                 description: Get {resource} instance.
                 schema:
                     $ref: '#/definitions/{resource}'
+            410:
+                description: Resource is deleted.
+                schema:
+                    $ref: '#/definitions/{resource}'
         """
         instance = self.get_object(identifier)
+        status = 410 if instance.deleted_at else 200
         try:
-            return instance.serialize(self.get_mask())
+            return instance.serialize(self.get_mask()), status
         except ValueError as e:
             abort(400, error=str(e))
 
@@ -178,10 +200,14 @@ class ModelEndpoint(CollectionEndpoint):
                 description: Instance has been updated successfully.
                 schema:
                     $ref: '#/definitions/{resource}'
-            419:
+            409:
                 description: Conflict.
                 schema:
                     $ref: '#/definitions/{resource}'
+            410:
+                description: Resource is deleted.
+                schema:
+                    $ref: '#/definitions/Error'
             422:
                 description: Invalid data.
                 schema:
@@ -202,10 +228,14 @@ class ModelEndpoint(CollectionEndpoint):
                 description: Instance has been created successfully.
                 schema:
                     $ref: '#/definitions/{resource}'
-            419:
+            409:
                 description: Conflict.
                 schema:
                     $ref: '#/definitions/{resource}'
+            410:
+                description: Resource is deleted.
+                schema:
+                    $ref: '#/definitions/Error'
             422:
                 description: Invalid data.
                 schema:
@@ -229,10 +259,14 @@ class ModelEndpoint(CollectionEndpoint):
                 description: Instance has been updated successfully.
                 schema:
                     $ref: '#/definitions/{resource}'
-            419:
+            409:
                 description: Conflict.
                 schema:
                     $ref: '#/definitions/{resource}'
+            410:
+                description: Resource is deleted.
+                schema:
+                    $ref: '#/definitions/Error'
             422:
                 description: Invalid data.
                 schema:
@@ -246,7 +280,7 @@ class ModelEndpoint(CollectionEndpoint):
     @app.jsonify
     @app.endpoint('/<identifier>', methods=['PUT'])
     def put(self, identifier):
-        """Replace {resource}.
+        """Replace or restore {resource}.
 
         parameters:
             - $ref: '#/parameters/identifier'
@@ -255,16 +289,25 @@ class ModelEndpoint(CollectionEndpoint):
                 description: Instance has been replaced successfully.
                 schema:
                     $ref: '#/definitions/{resource}'
-            419:
+            409:
                 description: Conflict.
                 schema:
                     $ref: '#/definitions/{resource}'
+            410:
+                description: Resource is deleted.
+                schema:
+                    $ref: '#/definitions/Error'
             422:
                 description: Invalid data.
                 schema:
                     $ref: '#/definitions/Error'
         """
         instance = self.get_object(identifier)
+        if instance.deleted_at:
+            # We want to create only one new version for a restore. Change the
+            # property here, but let the save_object do the actual save
+            # if the data is valid.
+            instance.deleted_at = None
         instance = self.save_object(instance)
         return instance.as_resource
 
@@ -281,17 +324,20 @@ class ModelEndpoint(CollectionEndpoint):
                 description: Instance has been deleted successfully.
                 schema:
                     $ref: '#/definitions/{resource}'
-            419:
+            409:
                 description: Conflict.
                 schema:
                     $ref: '#/definitions/{resource}'
+            410:
+                description: Resource is already deleted.
+                schema:
+                    $ref: '#/definitions/Error'
         """
         instance = self.get_object(identifier)
         try:
-            instance.delete_instance()
-        except peewee.IntegrityError:
-            # This model was still pointed by a FK.
-            abort(409)
+            instance.mark_deleted()
+        except ResourceLinkedError as e:
+            abort(409, error=str(e))
         return {'resource_id': identifier}
 
 
@@ -338,7 +384,7 @@ class VersionedModelEnpoint(ModelEndpoint):
         instance = self.get_object(identifier)
         version = instance.load_version(ref)
         if not version:
-            abort(404)
+            abort(404, error='Version reference `{}` not found'.format(ref))
         return version.serialize()
 
     @auth.require_oauth()
@@ -361,14 +407,63 @@ class VersionedModelEnpoint(ModelEndpoint):
         instance = self.get_object(identifier)
         version = instance.load_version(ref)
         if not version:
-            abort(404)
+            abort(404, error='Version reference `{}` not found'.format(ref))
         status = request.json.get('status')
         if status is True:
             version.flag()
         elif status is False:
             version.unflag()
         else:
-            abort(400, message='Body should contain a "status" boolean key')
+            abort(400, error='Body should contain a `status` boolean key')
+
+    @auth.require_oauth()
+    @app.endpoint('/<identifier>/redirects/<old>', methods=['PUT', 'DELETE'])
+    def put_delete_redirects(self, identifier, old):
+        """Create a new redirect to this resource.
+
+        parameters:
+            - $ref: '#/parameters/identifier'
+            - name: old
+              in: path
+              type: string
+              required: true
+              description: old identifier.
+        responses:
+            204:
+                description: redirect was successful.
+            201:
+                description: redirect was created.
+            422:
+                description: error while creating the redirect.
+        """
+        instance = self.get_object(identifier)
+        old_identifier, old_value = old.split(':')
+        if request.method == 'PUT':
+            try:
+                versioning.Redirect.add(instance, old_identifier, old_value)
+            except ValueError as e:
+                abort(422, error=str(e))
+            return '', 201
+        elif request.method == 'DELETE':
+            versioning.Redirect.remove(instance, old_identifier, old_value)
+            return '', 204
+
+    @auth.require_oauth()
+    @app.jsonify
+    @app.endpoint('/<identifier>/redirects', methods=['GET'])
+    def get_redirects(self, identifier):
+        """Get a collection of Redirect pointing to this resource.
+
+        parameters:
+            - $ref: '#/parameters/identifier'
+        responses:
+            200:
+                description: A list of redirects.
+        """
+        instance = self.get_object(identifier)
+        cls = versioning.Redirect
+        qs = cls.select().where(cls.model_id == instance.id)
+        return self.collection(qs.serialize())
 
 
 @app.resource
@@ -417,7 +512,7 @@ class HouseNumber(VersionedModelEnpoint):
                 qs = (parent_qs | qs)
             # We evaluate the qs ourselves here, because it's a CompoundSelect
             # that does not know about our SelectQuery custom methods (like
-            # `as_resource_list`), and CompoundSelect is hardcoded in peewee
+            # `serialize`), and CompoundSelect is hardcoded in peewee
             # SelectQuery, and we'd need to copy-paste code to be able to use
             # a custom CompoundQuery class instead.
             mask = self.get_collection_mask()
@@ -494,7 +589,7 @@ class DiffEndpoint(CollectionEndpoint):
         try:
             increment = int(request.args.get('increment'))
         except ValueError:
-            abort(400, 'Invalid value for increment')
+            abort(400, error='Invalid value for increment')
         except TypeError:
             pass
         else:

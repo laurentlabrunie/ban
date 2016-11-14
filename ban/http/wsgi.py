@@ -1,14 +1,16 @@
 import re
-from functools import wraps
 from datetime import timezone
-from dateutil.parser import parse as parse_date
+from functools import wraps
 
+from dateutil.parser import parse as parse_date
 from flask import Flask, make_response
 from flask_cors import CORS
 from werkzeug.routing import BaseConverter, ValidationError
 
-from .schema import Schema
+from ban.core import context
 from ban.core.encoder import dumps
+
+from .schema import Schema
 
 
 class App(Flask):
@@ -76,3 +78,26 @@ class DateTimeConverter(BaseConverter):
 app = application = App(__name__)
 CORS(app)
 app.url_map.converters['datetime'] = DateTimeConverter
+
+
+@app.errorhandler(404)
+@app.jsonify
+def page_not_found(error):
+    return {'error': 'Path not found'}, 404
+
+
+@app.errorhandler(405)
+@app.jsonify
+def method_not_allowed(error):
+    return {'error': 'Method not allowed'}, 405
+
+
+@app.after_request
+def log_headers(resp):
+    session = context.get('session')
+    if session:
+        if session.client:
+            resp.headers.add('Session-Client', session.client.id)
+        if session.user:
+            resp.headers.add('Session-User', session.user.id)
+    return resp
